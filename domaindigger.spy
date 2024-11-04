@@ -1,0 +1,77 @@
+#!/bin/env sshscript
+## version 2024/11/4
+## 這個程式必須以sshscript執行
+## eg. 
+##  $sshscript domaindigger.py
+## 
+## 售票網站（例如拓元）tixcraft.com 會對應到很多個IP。
+## 搶票時，那些IP都有可能被瀏覽器拿來連線。
+## 這個程式會呼叫dig程式目的是盡可能
+## 把你所在的ISP所能查到的售票網站的所有IP都查出來。
+## 在量測網速時逐一檢查，以找出最快的與最慢的IP。
+## 目的是了解最快的與最慢的IP是否有顯著的差異。
+
+import re,time,json,os,traceback
+class DomainDigger(object):
+    def __init__(self,domain,tries=3,sleep=0):
+        self.domain = domain
+        self.tries = tries
+        self.sleep = sleep
+        self.cacheFile = os.path.join(os.path.dirname(__file__),domain+'.json')
+        if os.path.exists(self.cacheFile):
+            try:
+                with open(self.cacheFile) as fd:
+                    self.cache = json.load(fd)
+            except:
+                print(f'failed to restore from {self.cacheFile}')
+                traceback.print_exc()
+                self.cache = {}
+        else:
+            self.cache = {}
+    @property
+    def ip(self):
+        return sorted(list(self.cache.keys()))
+    def __len__(self):
+        return len(self.ip)
+    def dig(self):
+        ipAddresses = set()
+        inA = re.compile('\sIN\s+A\s+(.+)$')
+        remainExecution = self.tries
+        while remainExecution > 0:
+            count = 0
+            $f'dig {self.domain}'
+            for line in $.stdout.splitlines():
+                if line.startswith(self.domain):
+                    m = inA.search(line)
+                    if m:
+                        ip = m.group(1)
+                        if not (ip in ipAddresses):
+                            ipAddresses.add(ip)
+                            self.cache[ip] = 1
+            try:
+                $.clear()
+            except AttributeError:
+                ## reset
+                $echo
+            remainExecution -= 1
+            if self.sleep: time.sleep(self.sleep)
+        self.save()
+        return ipAddresses
+    def save(self):
+        try:
+            with open(self.cacheFile,'w') as fd:
+                json.dump(self.cache,fd)
+        except:
+            print(f'failed to save to {self.cacheFile}')
+            traceback.print_exc()
+
+def dig(domain):
+    digger = DomainDigger(domain)
+    for i in range(10):
+        digger.dig()
+        print(digger.ip)
+        print('total',len(digger))
+        time.sleep(10)
+
+## tixcraft.com 是拓元售票網的網站
+dig('tixcraft.com')
